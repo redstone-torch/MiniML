@@ -1,0 +1,93 @@
+﻿{
+
+module Lexer
+
+open FSharp.Text.Lexing
+open System
+open Parser
+
+exception SyntaxError of string
+
+let private lexeme = LexBuffer<_>.LexemeString
+
+let private newline (lexbuf: LexBuffer<_>) = 
+  lexbuf.EndPos <- lexbuf.EndPos.NextLine
+}
+
+let digit = ['0'-'9']
+let pint = digit+
+let preal = digit+ '.' digit+
+let bool_value = ("false" | "true")
+let string_value = '\"' [^'\"']* '\"'
+let ident = ['a'-'z' 'A'-'Z' '_']
+let identity = ident+ (ident|digit)*
+let blank_chars = [' ' '\r' '\n' '\t']+
+
+rule token = parse
+	"do"					  { DO }
+  | "let"                     { LET }
+  | "rec"                     { REC }
+  | "="                       { EQUAL }
+  | "in"                      { IN }
+  | "fun"                     { FUN }
+  | "->"                      { RIGHT_ARROW }
+  | "if"                      { IF }
+  | "then"                    { THEN }
+  | "else"                    { ELSE }
+  | "case"                    { CASE }
+  | "of"                      { OF }
+  | "|"                       { PIPE }
+  | "("                       { LEFT_BRACKET }
+  | ")"                       { RIGHT_BRACKET }
+  | ","                       { COMMA }
+  | "["                       { LEFT_S_BRACKET }
+  | "]"                       { RIGHT_S_BRACKET }
+  | "::"                      { COLON_COLON }
+  | "++"                      { PLUS_PLUS }
+  | ";"                       { SEMICOLON }
+  | "@"						  { AT }
+
+  | '"'                       { read_string "" false lexbuf } 
+
+  | "type"                    { TYPE }
+
+  | "=="                      { EQUAL_EQUAL }
+  | "!="                      { UN_EQUAL }
+
+  | "<"                       { LESS }
+  | "<="                      { LESS_EQ }
+  | ">"                       { GREATER }
+  | ">="                      { GREATER_EQ }
+
+  | "+"                       { PLUS }
+  | "-"                       { MINUS }
+  | "*"                       { MULTIPLE }
+  | "/"                       { DIVIDE }
+  | "%"                       { REMAINDER }
+
+  | "+."                      { PLUS_DOT }
+  | "-."                      { MINUS_DOT }
+  | "*."                      { MULTIPLE_DOT }
+  | "/."                      { DIVIDE_DOT }
+
+  | "<."                      { LESS_DOT }
+  | "<=."                     { LESS_EQ_DOT }
+  | ">."                      { GREATER_DOT }
+  | ">=."                     { GREATER_EQ_DOT }
+
+  | pint					  { INT (int (lexeme lexbuf)) }
+  | '-' pint                  { INT (int (lexeme lexbuf)) }
+  | preal					  { REAL (double (lexeme lexbuf)) }
+  | '-' preal				  { REAL (double (lexeme lexbuf)) }
+  | bool_value                { BOOL (bool.Parse (lexeme lexbuf)) }
+  | identity                  { IDENTITY (lexeme lexbuf) }
+  | blank_chars               { token lexbuf }
+  | eof                       { EOF }
+  | _ { raise (Exception (sprintf "SyntaxError: Unexpected char: '%s' Line: %d Column: %d" (lexeme lexbuf) (lexbuf.StartPos.Line+1) (lexbuf.StartPos.Column+1))) }
+
+and read_string str ignorequote =
+  parse
+  | '"'           { if ignorequote  then (read_string (str+"\\\"") false lexbuf) else STRING (str) }
+  | '\\'          { read_string str true lexbuf }
+  | [^ '"' '\\']+ { read_string (str+(lexeme lexbuf)) false lexbuf }
+  | eof           { raise (Exception ("String is not terminated")) }

@@ -1,0 +1,190 @@
+﻿%{
+open Type
+open Ast
+
+let private listToApply = function
+    | first :: xs -> List.fold (fun apply exp -> App(apply, exp)) first xs
+    | _ -> raise (failwith "impossible")
+
+let rec private createLam body ids =
+    match ids with
+    | [] -> body
+    | [id] -> Lam(id, body)
+    | id :: xs -> Lam(id, createLam body xs)
+
+let private createBinaryOp left op right = App(App(Val op, left), right)
+
+let private createUnaryOp op expr = App(Val op, expr)
+%}
+
+%start program
+%start texpr
+
+%token <int> INT
+%token <bool> BOOL
+%token <double> REAL
+%token <string> STRING
+%token <string> IDENTITY
+%token COMMA SEMICOLON LEFT_S_BRACKET RIGHT_S_BRACKET
+%token LEFT_BRACKET RIGHT_BRACKET
+%token DO LET REC EQUAL IN FUN RIGHT_ARROW IF THEN ELSE CASE OF PIPE TYPE COLON_COLON PLUS_PLUS AT
+%token PLUS MINUS MULTIPLE DIVIDE REMAINDER PLUS_DOT MINUS_DOT MULTIPLE_DOT DIVIDE_DOT
+%token EQUAL_EQUAL UN_EQUAL LESS LESS_EQ GREATER GREATER_EQ LESS_DOT LESS_EQ_DOT GREATER_DOT GREATER_EQ_DOT
+%token EOF
+
+%nonassoc BRANCHES
+%right RIGHT_ARROW
+%nonassoc FUN
+%nonassoc REC EQUAL IN
+%nonassoc LET DO
+%nonassoc TYPE
+%nonassoc CASE OF PIPE
+%nonassoc THEN ELSE
+%nonassoc IF
+%left EQUAL_EQUAL UN_EQUAL LESS LESS_EQ GREATER GREATER_EQ LESS_DOT LESS_EQ_DOT GREATER_DOT GREATER_EQ_DOT
+%left AT
+%right PLUS_PLUS
+%right COLON_COLON
+%left PLUS MINUS PLUS_DOT MINUS_DOT
+%left MULTIPLE DIVIDE REMAINDER MULTIPLE_DOT DIVIDE_DOT
+%nonassoc COMMA
+%nonassoc IDENTITY INT BOOL STRING REAL
+%nonassoc LEFT_BRACKET RIGHT_BRACKET LEFT_S_BRACKET RIGHT_S_BRACKET
+%nonassoc TADT_PARAMS
+%left APPLY
+
+
+
+%type <TExpr> texpr
+%type <Expr> expr
+%type <Expr> program
+
+%%
+
+program:
+  | expr EOF { $1 }
+
+literature:
+  | INT                        { LInt $1 }
+  | BOOL                       { LBool $1 }
+  | LEFT_BRACKET RIGHT_BRACKET { LUnit }
+  | STRING                     { LString $1 }
+  | REAL                       { LReal $1 }
+
+idTuple:
+  | IDENTITY COMMA idTuple  { $1 :: $3 }
+  | IDENTITY COMMA IDENTITY { [$1; $3] }
+
+identities:
+  | IDENTITY identities { $1 :: $2 }
+  | IDENTITY IDENTITY   { [$1; $2] }
+
+tuple:
+  | expr COMMA tuple { $1 :: $3 }
+  | expr COMMA expr  { [$1; $3] }
+
+list':
+  | expr SEMICOLON list' { $1 :: $3 }
+  | expr SEMICOLON expr  { [$1; $3] }
+
+list:
+  | LEFT_S_BRACKET RIGHT_S_BRACKET       { List [] }
+  | LEFT_S_BRACKET expr RIGHT_S_BRACKET  { List [$2] }
+  | LEFT_S_BRACKET list' RIGHT_S_BRACKET { List $2 }
+
+binaryOp:
+  | expr PLUS           expr { createBinaryOp $1 "+"  $3 }
+  | expr MINUS          expr { createBinaryOp $1 "-"  $3 }
+  | expr MULTIPLE       expr { createBinaryOp $1 "*"  $3 }
+  | expr DIVIDE         expr { createBinaryOp $1 "/"  $3 }
+  | expr REMAINDER      expr { createBinaryOp $1 "%"  $3 }
+  | expr EQUAL_EQUAL    expr { createBinaryOp $1 "==" $3 }
+  | expr UN_EQUAL       expr { createBinaryOp $1 "!=" $3 }
+  | expr LESS           expr { createBinaryOp $1 "<"  $3 }
+  | expr LESS_EQ        expr { createBinaryOp $1 "<=" $3 }
+  | expr GREATER        expr { createBinaryOp $1 ">"  $3 }
+  | expr GREATER_EQ     expr { createBinaryOp $1 ">=" $3 }
+  | expr COLON_COLON    expr { createBinaryOp $1 "::" $3 }
+  | expr PLUS_PLUS      expr { createBinaryOp $1 "++" $3 }
+  | expr AT             expr { createBinaryOp $1 "@"  $3 }
+  | expr PLUS_DOT       expr { createBinaryOp $1 "+." $3 }
+  | expr MINUS_DOT      expr { createBinaryOp $1 "-." $3 }  
+  | expr MULTIPLE_DOT   expr { createBinaryOp $1 "*." $3 }
+  | expr DIVIDE_DOT     expr { createBinaryOp $1 "/." $3 }
+  | expr LESS_DOT       expr { createBinaryOp $1 "<."  $3 }
+  | expr LESS_EQ_DOT    expr { createBinaryOp $1 "<=." $3 }
+  | expr GREATER_DOT    expr { createBinaryOp $1 ">."  $3 }
+  | expr GREATER_EQ_DOT expr { createBinaryOp $1 ">=." $3 }
+
+caseList:
+  | CASE expr OF
+    PIPE IDENTITY COLON_COLON IDENTITY RIGHT_ARROW expr
+    PIPE LEFT_S_BRACKET RIGHT_S_BRACKET RIGHT_ARROW expr
+    { CaseList ($2, $5, $7, $9, $14) }
+  | CASE expr OF
+    PIPE LEFT_S_BRACKET RIGHT_S_BRACKET RIGHT_ARROW expr
+    PIPE IDENTITY COLON_COLON IDENTITY RIGHT_ARROW expr
+    { CaseList ($2, $10, $12, $14, $8) }
+
+constructor:
+  | PIPE IDENTITY       { ($2, None) }
+  | PIPE IDENTITY texpr { ($2, Some $3) }
+
+constructors:
+  | constructor constructors { $1 :: $2 }
+  | constructor              { [$1] }
+
+identityTuple:
+  | IDENTITY COMMA identityTuple { $1 :: $3 }
+  | IDENTITY                     { [$1] }
+
+caseBranche:
+  | IDENTITY RIGHT_ARROW expr                                          { ($1, [], $3) }
+  | IDENTITY IDENTITY RIGHT_ARROW expr                                 { ($1, [$2], $4) }
+  | IDENTITY LEFT_BRACKET identityTuple RIGHT_BRACKET RIGHT_ARROW expr { ($1, $3, $6) }
+
+caseBranches:
+  | caseBranche PIPE caseBranches { $1 :: $3 }
+  | caseBranche    %prec BRANCHES { [$1] }
+
+apply:
+  | apply expr %prec APPLY { $1 @ [$2] }
+  | expr  expr %prec APPLY { [$1; $2]  }
+
+expr:
+  | apply                     %prec APPLY                               { listToApply $1 }
+  | LEFT_BRACKET expr RIGHT_BRACKET                                     { $2 }
+  | literature                                                          { Lit $1 }
+  | IDENTITY                                                            { Val $1 }
+  | binaryOp                                                            { $1 }
+  | list                                                                { $1 }
+  | LEFT_BRACKET tuple RIGHT_BRACKET                                    { Tuple (List.head $2, List.tail $2) }
+  | IF expr THEN expr ELSE expr                                         { IfElse ($2, $4, $6) }
+  | caseList                                                            { $1 }
+  | FUN IDENTITY RIGHT_ARROW expr                                       { Lam ($2, $4) }
+  | DO expr IN expr                                                     { Let ("_", [], $2, $4) }
+  | LET IDENTITY EQUAL expr IN expr                                     { Let ($2, [], $4, $6) }
+  | LET identities EQUAL expr IN expr                                   { Let (List.head $2, [], createLam $4 (List.tail $2), $6) }
+  | LET idTuple EQUAL expr IN expr                                      { Let (List.head $2, List.tail $2, $4, $6) }
+  | LET REC IDENTITY EQUAL expr IN expr                                 { LetRec ($3, $5, $7) }
+  | LET REC identities EQUAL expr IN expr                               { LetRec (List.head $3, createLam $5 (List.tail $3), $7) }
+  | TYPE IDENTITY EQUAL constructors IN expr                            { ADTDef ($2, [], $4, $6) }
+  | TYPE IDENTITY LESS identityTuple GREATER EQUAL constructors IN expr { ADTDef ($2, $4, $7, $9) }
+  | CASE expr OF PIPE caseBranches                                      { Case($2, $5) }
+  
+
+ttuple:
+  | texpr COMMA ttuple { $1 :: $3 }
+  | texpr COMMA texpr  { [$1; $3] }
+
+adtParams:
+  | texpr COMMA adtParams { $1 :: $3 }
+  | texpr                 { [$1] }
+
+texpr:
+  | LEFT_BRACKET texpr RIGHT_BRACKET     { $2 }
+  | texpr RIGHT_ARROW texpr              { TEFun ($1, $3) }
+  | LEFT_S_BRACKET texpr RIGHT_S_BRACKET { TEList $2 }
+  | LEFT_BRACKET ttuple RIGHT_BRACKET    { TETuple (List.head $2, List.tail $2) }
+  | IDENTITY LESS adtParams GREATER      { TEADT ($1, $3) }
+  | IDENTITY                             { TEVal $1 }
